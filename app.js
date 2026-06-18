@@ -356,11 +356,15 @@ function addCardToTimeline(cardId, percent) {
     const cardData = HORROR_CARDS.find(c => c.id === cardId);
     if (!cardData) return;
     
+    const widthPercent = 15;
+    const maxStartPercent = 100 - widthPercent;
+    const safeStartPercent = Math.max(0, Math.min(maxStartPercent, percent));
+    
     const timelineCard = {
         uid: 'card-' + (state.nextId++),
         cardId: cardId,
-        startPercent: percent,
-        widthPercent: 15,
+        startPercent: safeStartPercent,
+        widthPercent: widthPercent,
         rhythm: null,
         ...cardData
     };
@@ -517,6 +521,15 @@ function animatePlayback() {
     if (percent >= 100) {
         stopPlayback();
         $('playhead').style.left = '0%';
+        if (state.timelineCards.length > 0) {
+            try {
+                const analysis = calculateAudienceReaction();
+                renderReactionAnalysis(analysis);
+                showToast('播放完成！已自动生成观众反馈');
+            } catch (err) {
+                console.error('自动分析出错:', err);
+            }
+        }
         return;
     }
     
@@ -694,200 +707,253 @@ function analyzeAudienceReaction() {
 }
 
 function calculateAudienceReaction() {
-    let totalTension = 0;
-    let totalFatigue = 0;
-    let totalExpectation = 0;
-    let totalAmusement = 0;
-    let weightedCount = 0;
-    
-    const peaks = [];
-    const tensions = [];
-    const reliefs = [];
-    
-    state.timelineCards.forEach((tc, idx) => {
-        const rhythm = tc.rhythm || tc.defaultRhythm;
-        const preset = RHYTHM_PRESETS[rhythm];
-        const mult = preset.multiplier;
+    try {
+        const cardCount = state.timelineCards.length;
+        if (cardCount === 0) {
+            return {
+                scores: { tension: 0, fatigue: 0, expectation: 0, amusement: 0 },
+                tags: [],
+                positives: [],
+                negatives: [{ title: '时间轴为空', detail: '请至少放置 1 个恐怖片段来分析节奏效果。' }],
+                suggestions: [],
+                overallRating: 0,
+                ratingDesc: '时间轴上还没有片段，拖拽几张卡牌开始设计吧！'
+            };
+        }
         
-        const weight = 1;
-        weightedCount += weight;
+        let totalTension = 0;
+        let totalFatigue = 0;
+        let totalExpectation = 0;
+        let totalAmusement = 0;
+        let weightedCount = 0;
         
-        totalTension += tc.tensionValue * mult.tension * weight;
-        totalFatigue += tc.fatigueValue * mult.fatigue * weight;
-        totalExpectation += tc.expectationValue * mult.expectation * weight;
-        totalAmusement += tc.amusementValue * mult.amusement * weight;
+        const peaks = [];
+        const tensions = [];
+        const reliefs = [];
+        const missingRhythm = [];
         
-        if (tc.type === 'peak') peaks.push({ ...tc, index: idx });
-        if (tc.type === 'tension') tensions.push({ ...tc, index: idx });
-        if (tc.type === 'relief') reliefs.push({ ...tc, index: idx });
-    });
-    
-    const avgTension = Math.round(totalTension / weightedCount);
-    const avgFatigue = Math.round(totalFatigue / weightedCount);
-    const avgExpectation = Math.round(totalExpectation / weightedCount);
-    const avgAmusement = Math.round(totalAmusement / weightedCount);
-    
-    const positives = [];
-    const negatives = [];
-    const suggestions = [];
-    const tags = [];
-    
-    const firstCard = state.timelineCards[0];
-    const lastCard = state.timelineCards[state.timelineCards.length - 1];
-    
-    if (firstCard && (firstCard.type === 'tension' || firstCard.type === 'relief')) {
-        positives.push({
-            title: '开场节奏得当',
-            detail: `以「${firstCard.name}」作为开场，给了观众进入情绪的缓冲空间。`
+        state.timelineCards.forEach((tc, idx) => {
+            if (!tc.rhythm) missingRhythm.push(tc);
+            const rhythm = tc.rhythm || tc.defaultRhythm;
+            const preset = RHYTHM_PRESETS[rhythm] || RHYTHM_PRESETS['normal-calm'];
+            const mult = preset.multiplier;
+            
+            const weight = 1;
+            weightedCount += weight;
+            
+            totalTension += (tc.tensionValue || 50) * mult.tension * weight;
+            totalFatigue += (tc.fatigueValue || 20) * mult.fatigue * weight;
+            totalExpectation += (tc.expectationValue || 50) * mult.expectation * weight;
+            totalAmusement += (tc.amusementValue || 5) * mult.amusement * weight;
+            
+            if (tc.type === 'peak') peaks.push({ ...tc, index: idx });
+            if (tc.type === 'tension') tensions.push({ ...tc, index: idx });
+            if (tc.type === 'relief') reliefs.push({ ...tc, index: idx });
         });
-        tags.push({ text: '开场稳健', type: 'positive' });
-    } else if (firstCard && firstCard.type === 'peak') {
-        negatives.push({
-            title: '开场高潮过早',
-            detail: `一上来就是「${firstCard.name}」这样的强刺激，后续很难再突破观众的耐受阈值。`
-        });
-        tags.push({ text: '高潮过早', type: 'negative' });
-    }
-    
-    if (state.timelineCards.length >= 3) {
+        
+        if (weightedCount === 0) weightedCount = 1;
+        
+        const avgTension = Math.min(100, Math.max(0, Math.round(totalTension / weightedCount)));
+        const avgFatigue = Math.min(100, Math.max(0, Math.round(totalFatigue / weightedCount)));
+        const avgExpectation = Math.min(100, Math.max(0, Math.round(totalExpectation / weightedCount)));
+        const avgAmusement = Math.min(100, Math.max(0, Math.round(totalAmusement / weightedCount)));
+        
+        const positives = [];
+        const negatives = [];
+        const suggestions = [];
+        const tags = [];
+        
+        const firstCard = state.timelineCards[0] || null;
+        const lastCard = state.timelineCards[cardCount - 1] || null;
+        
         let alternatingCount = 0;
-        for (let i = 1; i < state.timelineCards.length; i++) {
-            const prev = state.timelineCards[i - 1];
-            const curr = state.timelineCards[i];
-            if ((prev.type === 'peak' && (curr.type === 'relief' || curr.type === 'tension')) ||
-                ((prev.type === 'relief' || prev.type === 'tension') && curr.type === 'build')) {
-                alternatingCount++;
+        if (cardCount >= 2) {
+            for (let i = 1; i < cardCount; i++) {
+                const prev = state.timelineCards[i - 1];
+                const curr = state.timelineCards[i];
+                if ((prev.type === 'peak' && (curr.type === 'relief' || curr.type === 'tension')) ||
+                    ((prev.type === 'relief' || prev.type === 'tension') && curr.type === 'build')) {
+                    alternatingCount++;
+                }
             }
         }
-        if (alternatingCount >= state.timelineCards.length * 0.5) {
+        
+        if (cardCount === 1) {
+            suggestions.push({
+                title: '片段较少，节奏单一',
+                detail: `目前只有 1 个片段「${firstCard ? firstCard.name : ''}」，建议增加 3-6 个片段来体验完整的张弛节奏。`
+            });
+            tags.push({ text: '可增加片段', type: 'neutral' });
+        }
+        
+        if (firstCard && (firstCard.type === 'tension' || firstCard.type === 'relief')) {
+            positives.push({
+                title: '开场节奏得当',
+                detail: `以「${firstCard.name}」作为开场，给了观众进入情绪的缓冲空间。`
+            });
+            tags.push({ text: '开场稳健', type: 'positive' });
+        } else if (firstCard && firstCard.type === 'peak') {
+            negatives.push({
+                title: '开场高潮过早',
+                detail: `一上来就是「${firstCard.name}」这样的强刺激，后续很难再突破观众的耐受阈值。`
+            });
+            tags.push({ text: '高潮过早', type: 'negative' });
+        }
+        
+        if (cardCount >= 3 && alternatingCount >= cardCount * 0.5) {
             positives.push({
                 title: '张弛节奏良好',
                 detail: '高潮与铺垫交替出现，观众的神经有松有紧，符合恐怖叙事的经典节奏。'
             });
             tags.push({ text: '张弛有度', type: 'positive' });
-        }
-    }
-    
-    const peakCount = peaks.length;
-    if (peakCount >= 2 && peakCount <= 4) {
-        positives.push({
-            title: '高潮密度合理',
-            detail: `${peakCount} 个高潮点分布在 5 分钟内，观众有足够的情绪消化时间。`
-        });
-        tags.push({ text: '高潮得当', type: 'positive' });
-    } else if (peakCount > 4) {
-        negatives.push({
-            title: '高潮过于密集',
-            detail: `${peakCount} 个高潮点可能导致观众情绪疲劳，吓多了就麻木了。`
-        });
-        tags.push({ text: '惊吓疲劳', type: 'negative' });
-    } else if (peakCount === 0) {
-        negatives.push({
-            title: '缺少明确高潮',
-            detail: '没有高潮段落，观众的紧张情绪得不到释放，容易感到无聊。'
-        });
-        tags.push({ text: '缺少爆点', type: 'negative' });
-    }
-    
-    if (peakCount >= 1) {
-        const lastPeak = peaks[peaks.length - 1];
-        if (lastPeak.index === state.timelineCards.length - 1) {
-            positives.push({
-                title: '结尾有力',
-                detail: `以「${lastPeak.name}」收尾，给观众留下深刻印象。`
-            });
-            tags.push({ text: '余味悠长', type: 'positive' });
-        } else if (lastCard && lastCard.type === 'relief') {
+        } else if (cardCount >= 3) {
             suggestions.push({
-                title: '可以考虑反转结尾',
-                detail: `当前以「${lastCard.name}」收尾，如果在最后加一个小反转，效果会更加难忘。`
+                title: '节奏可更有起伏',
+                detail: `当前有 ${alternatingCount} 次明显的节奏转换，尝试在高潮后安排释放段落，观众会更容易被下一波惊吓吓到。`
             });
-            tags.push({ text: '可留悬念', type: 'neutral' });
         }
+        
+        const peakCount = peaks.length;
+        if (peakCount >= 2 && peakCount <= 4) {
+            positives.push({
+                title: '高潮密度合理',
+                detail: `${peakCount} 个高潮点分布在 5 分钟内，观众有足够的情绪消化时间。`
+            });
+            tags.push({ text: '高潮得当', type: 'positive' });
+        } else if (peakCount > 4) {
+            negatives.push({
+                title: '高潮过于密集',
+                detail: `${peakCount} 个高潮点可能导致观众情绪疲劳，吓多了就麻木了。`
+            });
+            tags.push({ text: '惊吓疲劳', type: 'negative' });
+        } else if (peakCount === 0) {
+            negatives.push({
+                title: '缺少明确高潮',
+                detail: '没有高潮段落，观众的紧张情绪得不到释放，容易感到无聊。'
+            });
+            tags.push({ text: '缺少爆点', type: 'negative' });
+        } else if (peakCount === 1) {
+            suggestions.push({
+                title: '高潮点可以更多',
+                detail: `目前只有 1 个高潮，可以考虑再安排 1-2 个小高潮，形成节奏波浪。`
+            });
+        }
+        
+        if (peakCount >= 1) {
+            const lastPeak = peaks[peaks.length - 1];
+            if (lastPeak.index === cardCount - 1) {
+                positives.push({
+                    title: '结尾有力',
+                    detail: `以「${lastPeak.name}」收尾，给观众留下深刻印象。`
+                });
+                tags.push({ text: '余味悠长', type: 'positive' });
+            } else if (lastCard && lastCard.type === 'relief') {
+                suggestions.push({
+                    title: '可以考虑反转结尾',
+                    detail: `当前以「${lastCard.name}」收尾，如果在最后加一个小反转，效果会更加难忘。`
+                });
+                tags.push({ text: '可留悬念', type: 'neutral' });
+            }
+        }
+        
+        if (tensions.length >= 2) {
+            positives.push({
+                title: '注重氛围铺垫',
+                detail: `${tensions.length} 个铺垫段落，说明你重视"让观众自己吓自己"的心理恐怖。`
+            });
+            tags.push({ text: '心理恐怖', type: 'positive' });
+        }
+        
+        if (reliefs.length >= 1 && reliefs.length <= 3) {
+            positives.push({
+                title: '善用假安全',
+                detail: `${reliefs.length} 个释放段落，用放松来反衬随后的恐惧，这是高明的手法。`
+            });
+            tags.push({ text: '善用反差', type: 'positive' });
+        }
+        
+        if (avgFatigue > 60) {
+            negatives.push({
+                title: '观众容易疲劳',
+                detail: `疲劳指数 ${avgFatigue}/100，持续的高强度刺激可能导致观众脱敏。建议增加一些平静段落。`
+            });
+            tags.push({ text: '节奏偏累', type: 'negative' });
+        }
+        
+        if (avgExpectation > 70) {
+            positives.push({
+                title: '悬念感十足',
+                detail: `期待指数 ${avgExpectation}/100，观众会一直想知道"接下来会发生什么"。`
+            });
+            tags.push({ text: '悬念优秀', type: 'positive' });
+        }
+        
+        if (avgAmusement > 30) {
+            suggestions.push({
+                title: '带点黑色幽默',
+                detail: `失笑指数 ${avgAmusement}/100，你的设计中有些幽默元素，这能在某些场景增强反差感。`
+            });
+            tags.push({ text: '黑色幽默', type: 'neutral' });
+        }
+        
+        if (missingRhythm.length > 0) {
+            suggestions.push({
+                title: '完善心跳节奏',
+                detail: `还有 ${missingRhythm.length} 个片段未设置心跳节奏，点击时间轴上的片段选择节奏，体验会更完整。`
+            });
+        }
+        
+        let pacingScore = 0;
+        pacingScore += Math.min(avgTension, 80) * 0.25;
+        pacingScore += Math.min(avgExpectation, 85) * 0.25;
+        pacingScore += Math.max(0, 100 - avgFatigue) * 0.25;
+        if (alternatingCount >= 2) pacingScore += 15;
+        else if (alternatingCount === 1) pacingScore += 7;
+        if (peakCount >= 2 && peakCount <= 4) pacingScore += 10;
+        else if (peakCount === 1) pacingScore += 5;
+        if (cardCount >= 3) pacingScore += 5;
+        if (cardCount >= 5) pacingScore += 5;
+        pacingScore = Math.min(100, Math.max(0, Math.round(pacingScore)));
+        
+        let ratingDesc = '';
+        if (pacingScore >= 85) {
+            ratingDesc = '教科书级的恐怖叙事节奏，观众会全程攥紧拳头！';
+        } else if (pacingScore >= 70) {
+            ratingDesc = '节奏把握得相当不错，有张有弛，有恐怖有回味。';
+        } else if (pacingScore >= 55) {
+            ratingDesc = '中规中矩，有亮点但整体节奏还有优化空间。';
+        } else if (pacingScore >= 40) {
+            ratingDesc = '节奏存在一些问题，观众可能会感到疲劳或不够投入。';
+        } else {
+            ratingDesc = '需要重新调整节奏，恐怖不是一直吓，而是让心悬起来。';
+        }
+        
+        return {
+            scores: {
+                tension: avgTension,
+                fatigue: avgFatigue,
+                expectation: avgExpectation,
+                amusement: avgAmusement
+            },
+            tags,
+            positives,
+            negatives,
+            suggestions,
+            overallRating: pacingScore,
+            ratingDesc
+        };
+    } catch (err) {
+        console.error('calculateAudienceReaction error:', err);
+        return {
+            scores: { tension: 50, fatigue: 30, expectation: 50, amusement: 10 },
+            tags: [{ text: '分析中出现异常', type: 'neutral' }],
+            positives: [],
+            negatives: [],
+            suggestions: [{ title: '系统提示', detail: '分析过程中出现小问题，但结果仍可参考。' }],
+            overallRating: 50,
+            ratingDesc: '可以继续调整编排，再次点击观众反馈查看。'
+        };
     }
-    
-    if (tensions.length >= 2) {
-        positives.push({
-            title: '注重氛围铺垫',
-            detail: `${tensions.length} 个铺垫段落，说明你重视"让观众自己吓自己"的心理恐怖。`
-        });
-        tags.push({ text: '心理恐怖', type: 'positive' });
-    }
-    
-    if (reliefs.length >= 1 && reliefs.length <= 3) {
-        positives.push({
-            title: '善用假安全',
-            detail: `${reliefs.length} 个释放段落，用放松来反衬随后的恐惧，这是高明的手法。`
-        });
-        tags.push({ text: '善用反差', type: 'positive' });
-    }
-    
-    if (avgFatigue > 60) {
-        negatives.push({
-            title: '观众容易疲劳',
-            detail: `疲劳指数 ${avgFatigue}/100，持续的高强度刺激可能导致观众脱敏。建议增加一些平静段落。`
-        });
-        tags.push({ text: '节奏偏累', type: 'negative' });
-    }
-    
-    if (avgExpectation > 70) {
-        positives.push({
-            title: '悬念感十足',
-            detail: `期待指数 ${avgExpectation}/100，观众会一直想知道"接下来会发生什么"。`
-        });
-        tags.push({ text: '悬念优秀', type: 'positive' });
-    }
-    
-    if (avgAmusement > 30) {
-        suggestions.push({
-            title: '带点黑色幽默',
-            detail: `失笑指数 ${avgAmusement}/100，你的设计中有些幽默元素，这能在某些场景增强反差感。`
-        });
-        tags.push({ text: '黑色幽默', type: 'neutral' });
-    }
-    
-    if (missingRhythm.length > 0) {
-        suggestions.push({
-            title: '完善心跳节奏',
-            detail: `还有 ${missingRhythm.length} 个片段未设置心跳节奏，这会让体验不够完整。`
-        });
-    }
-    
-    let pacingScore = 0;
-    pacingScore += Math.min(avgTension, 80) * 0.25;
-    pacingScore += Math.min(avgExpectation, 85) * 0.25;
-    pacingScore += Math.max(0, 100 - avgFatigue) * 0.25;
-    if (alternatingCount >= 2) pacingScore += 15;
-    if (peakCount >= 2 && peakCount <= 4) pacingScore += 10;
-    pacingScore = Math.min(100, Math.round(pacingScore));
-    
-    let ratingDesc = '';
-    if (pacingScore >= 85) {
-        ratingDesc = '教科书级的恐怖叙事节奏，观众会全程攥紧拳头！';
-    } else if (pacingScore >= 70) {
-        ratingDesc = '节奏把握得相当不错，有张有弛，有恐怖有回味。';
-    } else if (pacingScore >= 55) {
-        ratingDesc = '中规中矩，有亮点但整体节奏还有优化空间。';
-    } else if (pacingScore >= 40) {
-        ratingDesc = '节奏存在一些问题，观众可能会感到疲劳或不够投入。';
-    } else {
-        ratingDesc = '需要重新调整节奏，恐怖不是一直吓，而是让心悬起来。';
-    }
-    
-    return {
-        scores: {
-            tension: avgTension,
-            fatigue: avgFatigue,
-            expectation: avgExpectation,
-            amusement: avgAmusement
-        },
-        tags,
-        positives,
-        negatives,
-        suggestions,
-        overallRating: pacingScore,
-        ratingDesc
-    };
 }
 
 function renderReactionAnalysis(analysis) {
