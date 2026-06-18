@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>心跳调音台 - 恐怖叙事节奏训练</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app">
+        <header class="header">
+            <div class="title-section">
+                <h1 class="title">
+                    <span class="heart-icon">♥</span>
+                    心跳调音台
+                    <span class="subtitle">恐怖叙事节奏训练器</span>
+                </h1>
+                <p class="tagline">"恐怖不是一直吓人 —— 是让心悬在半空的艺术"</p>
+            </div>
+            <div class="controls">
+                <button id="playBtn" class="btn btn-primary">
+                    <span class="btn-icon">▶</span> 播放节奏
+                </button>
+                <button id="resetBtn" class="btn btn-secondary">
+                    <span class="btn-icon">↻</span> 重置
+                </button>
+                <button id="analyzeBtn" class="btn btn-accent">
+                    <span class="btn-icon">✦</span> 观众反馈
+                </button>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <section class="card-library panel">
+                <div class="panel-header">
+                    <h2>🎴 恐怖片段牌库</h2>
+                    <span class="panel-hint">拖拽卡牌到时间轴</span>
+                </div>
+                <div id="cardLibrary" class="card-grid">
+                </div>
+            </section>
+
+            <section class="timeline-section panel">
+                <div class="panel-header">
+                    <h2>💓 心跳轨道</h2>
+                    <div class="timeline-meta">
+                        <span class="time-label">5 分钟时间轴</span>
+                        <span id="trackCount" class="track-count">0 / 10 片段</span>
+                    </div>
+                </div>
+
+                <div class="heartbeat-visual">
+                    <div class="heart-display">
+                        <div id="heartAnim" class="heart-anim">♥</div>
+                        <div id="bpmDisplay" class="bpm-display">-- BPM</div>
+                    </div>
+                    <div id="waveform" class="waveform">
+                        <canvas id="waveCanvas"></canvas>
+                    </div>
+                </div>
+
+                <div id="timeline" class="timeline">
+                    <div class="timeline-scale">
+                        <span>0:00</span>
+                        <span>1:00</span>
+                        <span>2:00</span>
+                        <span>3:00</span>
+                        <span>4:00</span>
+                        <span>5:00</span>
+                    </div>
+                    <div id="timelineTrack" class="timeline-track">
+                        <div id="playhead" class="playhead"></div>
+                    </div>
+                    <div class="timeline-legend">
+                        <span class="legend-item"><span class="legend-dot tension"></span>铺垫</span>
+                        <span class="legend-item"><span class="legend-dot build"></span>爬升</span>
+                        <span class="legend-item"><span class="legend-dot peak"></span>高潮</span>
+                        <span class="legend-item"><span class="legend-dot relief"></span>释放</span>
+                    </div>
+                </div>
+
+                <div id="rhythmSelector" class="rhythm-selector hidden">
+                    <div class="selector-header">
+                        <h3 id="selectedCardName">选择心跳节奏</h3>
+                        <button id="closeSelector" class="close-btn">×</button>
+                    </div>
+                    <div class="rhythm-options">
+                        <div class="rhythm-option" data-rhythm="slow-heavy">
+                            <div class="rhythm-icon">💔</div>
+                            <div class="rhythm-info">
+                                <h4>缓慢重击</h4>
+                                <p>40-60 BPM · 沉重压抑</p>
+                                <small>适合：铺垫不安、远处威胁</small>
+                            </div>
+                        </div>
+                        <div class="rhythm-option" data-rhythm="steady-build">
+                            <div class="rhythm-icon">🫀</div>
+                            <div class="rhythm-info">
+                                <h4>稳步加速</h4>
+                                <p>70-100 BPM · 逐渐紧张</p>
+                                <small>适合：悬念爬升、步步逼近</small>
+                            </div>
+                        </div>
+                        <div class="rhythm-option" data-rhythm="fast-chaotic">
+                            <div class="rhythm-icon">💥</div>
+                            <div class="rhythm-info">
+                                <h4>快速乱跳</h4>
+                                <p>140-180 BPM · 惊恐爆发</p>
+                                <small>适合：追逐、突然惊吓</small>
+                            </div>
+                        </div>
+                        <div class="rhythm-option" data-rhythm="sudden-silence">
+                            <div class="rhythm-icon">🤫</div>
+                            <div class="rhythm-info">
+                                <h4>突然静音</h4>
+                                <p>0 BPM · 死寂停顿</p>
+                                <small>适合：假安全、屏息时刻</small>
+                            </div>
+                        </div>
+                        <div class="rhythm-option" data-rhythm="flutter">
+                            <div class="rhythm-icon">🌀</div>
+                            <div class="rhythm-info">
+                                <h4>忐忑颤动</h4>
+                                <p>90-110 BPM · 飘忽不定</p>
+                                <small>适合：幻觉、不确定感</small>
+                            </div>
+                        </div>
+                        <div class="rhythm-option" data-rhythm="normal-calm">
+                            <div class="rhythm-icon">😌</div>
+                            <div class="rhythm-info">
+                                <h4>正常平缓</h4>
+                                <p>60-80 BPM · 放松假象</p>
+                                <small>适合：日常开场、暴风雨前</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="audience-reaction panel">
+                <div class="panel-header">
+                    <h2>👥 观众反应</h2>
+                    <span class="panel-hint">点击"观众反馈"查看分析</span>
+                </div>
+                <div id="reactionContent" class="reaction-content">
+                    <div class="empty-state">
+                        <div class="empty-icon">🎬</div>
+                        <p>布置好恐怖片段，点击"观众反馈"<br>看看你的叙事节奏效果如何</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer class="footer">
+            <p>🎓 游戏设计课程 & 创作者工作坊教学工具 · 拖拽卡牌 · 调整心跳 · 感受节奏</p>
+        </footer>
+    </div>
+
+    <div id="tooltip" class="tooltip hidden"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>
